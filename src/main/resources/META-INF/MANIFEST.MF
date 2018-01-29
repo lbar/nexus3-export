@@ -1,0 +1,1 @@
+Main-Class: fr.kage.nexus3.Nexus3ExportApplication
