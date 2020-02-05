@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The purpose of this tool is to export a repository from Sonatype Nexus 3. Since version 3, the repositories stored in Nexus are not browsable by filesystem. The tool uses the Nexus API to extract all assets of a given repository.
+The purpose of this tool is to export a repository from Sonatype Nexus 3. Since version 3, the repositories stored in Nexus are not browsable by filesystem. The tool uses the Nexus API to extract all assets of a given repository. It also supports Basic Authentication, which is useful for repositories requiring authentication.
 
 ## Usage
 
@@ -11,11 +11,18 @@ Program takes 2 required arguments plus 1 optional:
 * Id of the repository in Nexus (e.g. _releases_)
 * (Optional) The local directory for repository to export. If no one is provided, a directory is creeated in the user temp directory
 
-### From IDE
+### Authentication
+If the Nexus repoitory requires authentication, specify the username and password in `credentials.properties`. Also set `authenticate` to `true`.
+
+The authentication will then be used for both the Nexus API and to download artifacts from the repository. Make sure the provided user account is allowed to access the Rest API!
+
+**Note** If the password contains special characters (such as "="), place double quotes around the entire password.
+
+### Running from IDE
 
 You can create a Run Configuration by starting the `Nexus3ExportApplication` class. You have to add to specify the previous program arguments.
 
-### From CLI
+### Running from CLI
 
 Package the application as a JAR with Maven tool:
 

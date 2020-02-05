@@ -4,12 +4,15 @@ import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.Authenticator;
+import java.net.PasswordAuthentication;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,6 +35,10 @@ public class DownloadRepository implements Runnable {
 	private final String repositoryId;
 	private Path downloadPath;
 
+	private boolean authenticate;
+	private String username;
+	private String password;
+
 	private RestTemplate restTemplate;
 	private ExecutorService executorService;
 
@@ -39,10 +46,13 @@ public class DownloadRepository implements Runnable {
 	private AtomicLong assetFound = new AtomicLong();
 
 
-	public DownloadRepository(String url, String repositoryId, String downloadPath) {
+	public DownloadRepository(String url, String repositoryId, String downloadPath, boolean authenticate, String username, String password) {
 		this.url = requireNonNull(url);
 		this.repositoryId = requireNonNull(repositoryId);
 		this.downloadPath = downloadPath == null ? null : Paths.get(downloadPath);
+		this.authenticate = authenticate;
+		this.username = username;
+		this.password = password;
 	}
 
 
@@ -55,7 +65,23 @@ public class DownloadRepository implements Runnable {
 
 			LOGGER.info("Starting download of Nexus 3 repository in local directory {}", downloadPath);
 			executorService = Executors.newFixedThreadPool(10);
-			restTemplate = new RestTemplate();
+	
+			if (authenticate) {
+				LOGGER.info("Configuring authentication for Nexus 3 repository");
+
+				// Set auth for RestTemplate to retrieve list of assets
+				RestTemplateBuilder restTemplateBuilder = new RestTemplateBuilder();
+				restTemplate = restTemplateBuilder.basicAuthentication(username, password).build();
+				
+				// Set auth for Java to download individual assets using url.openStream();
+				Authenticator.setDefault (new Authenticator() {
+					protected PasswordAuthentication getPasswordAuthentication() {
+						return new PasswordAuthentication (username, password.toCharArray());
+					}
+				});
+			} else {
+				restTemplate = new RestTemplate();
+			}
 
 			executorService.submit(this);
 			executorService.awaitTermination(1, TimeUnit.DAYS);
@@ -93,14 +119,24 @@ public class DownloadRepository implements Runnable {
 
 		@Override
 		public void run() {
-			LOGGER.info("Retrieving some assets");
+			LOGGER.info("Retrieving available assets to download");
 			UriComponentsBuilder getAssets = UriComponentsBuilder.fromHttpUrl(url)
-					.pathSegment("service", "siesta", "rest", "beta", "assets")
-					.queryParam("repositoryId", repositoryId);
+					.pathSegment("service", "rest", "v1", "assets")
+					.queryParam("repository", repositoryId);
 			if (continuationToken != null)
 				getAssets = getAssets.queryParam("continuationToken", continuationToken);
 
-			final ResponseEntity<Assets> assetsEntity = restTemplate.getForEntity(getAssets.build().toUri(), Assets.class);
+			final ResponseEntity<Assets> assetsEntity;
+			
+			try {
+				assetsEntity = restTemplate.getForEntity(getAssets.build().toUri(), Assets.class);
+			} catch(Exception e) {
+				LOGGER.error("Error retrieving available assets to download", e);
+				LOGGER.error("Error retrieving available assets to download. Please check if you've specified the correct url and repositoryId in the command line and -if authentication is needed- username and password in the credentials.properties file");
+				executorService.shutdownNow();
+				return;
+			}
+
 			final Assets assets = assetsEntity.getBody();
 			if (assets.getContinuationToken() != null) {
 				executorService.submit(new DownloadAssetsTask(assets.getContinuationToken()));
