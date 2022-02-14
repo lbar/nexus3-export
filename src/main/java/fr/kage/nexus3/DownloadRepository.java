@@ -53,6 +53,10 @@ public class DownloadRepository implements Runnable {
 		this.authenticate = authenticate;
 		this.username = username;
 		this.password = password;
+		if (url.startsWith("https://")) {
+			SSLUtilities.trustAllHostnames();
+			SSLUtilities.trustAllHttpsCertificates();
+		}
 	}
 
 
