@@ -28,7 +28,7 @@ public class Nexus3ExportApplication implements CommandLineRunner {
 				String downloadPath = args.length == 3 ? args[2] : null;
 
 				Properties credentials = loadCredentials();
-				boolean authenticate = Boolean.valueOf(credentials.getProperty("authenticate", "false"));
+				boolean authenticate = Boolean.parseBoolean(credentials.getProperty("authenticate", "false"));
 				String username = removeTrailingQuotes(credentials.getProperty("username"));
 				String password = removeTrailingQuotes(credentials.getProperty("password"));
 				new DownloadRepository(url, repoId, downloadPath, authenticate, username, password).start();
@@ -66,7 +66,7 @@ public class Nexus3ExportApplication implements CommandLineRunner {
 
 	private String removeTrailingQuotes(String value) {
 		String result; 
-		if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("\'") && value.endsWith("\'"))) {
+		if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
 			result = value.substring(1, value.length() - 1);
 		} else {
 			result = value;
