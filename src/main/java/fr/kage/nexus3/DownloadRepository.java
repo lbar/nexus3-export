@@ -40,13 +40,16 @@ public class DownloadRepository
     private final String username;
     private final String password;
 
+    private final int threads;
+
     private RestTemplate restTemplate;
     private ExecutorService executorService;
 
     private final AtomicLong assetProcessed = new AtomicLong();
     private final AtomicLong assetFound = new AtomicLong();
 
-    public DownloadRepository(String url, String repositoryId, String downloadPath, boolean authenticate, String username, String password)
+    public DownloadRepository(String url, String repositoryId, String downloadPath, boolean authenticate, String username,
+            String password, int threads)
     {
         this.url = requireNonNull(url);
         this.repositoryId = requireNonNull(repositoryId);
@@ -54,6 +57,7 @@ public class DownloadRepository
         this.authenticate = authenticate;
         this.username = username;
         this.password = password;
+        this.threads = threads;
         if (url.startsWith("https://")) {
             SSLUtilities.trustAllHostnames();
             SSLUtilities.trustAllHttpsCertificates();
@@ -66,12 +70,15 @@ public class DownloadRepository
 			if (downloadPath == null) {
 				downloadPath = Files.createTempDirectory("nexus3");
 			}
+            else if (!downloadPath.toFile().exists()) {
+                Files.createDirectories(downloadPath);
+            }
 			else if (!downloadPath.toFile().isDirectory() || !downloadPath.toFile().canWrite()) {
 				throw new IOException("Not a writable directory: " + downloadPath);
 			}
 
-            LOGGER.info("Starting download of Nexus 3 repository in local directory {}", downloadPath);
-            executorService = Executors.newFixedThreadPool(10);
+            LOGGER.info("Starting download of Nexus 3 repository in local directory {} with {} thread(s)", downloadPath, threads);
+            executorService = Executors.newFixedThreadPool(threads);
 
             if (authenticate) {
                 LOGGER.info("Configuring authentication for Nexus 3 repository");
@@ -98,7 +105,7 @@ public class DownloadRepository
             executorService.shutdown();
         }
         catch (IOException e) {
-            LOGGER.error("Unable to create/use directory for local data: " + downloadPath);
+            LOGGER.error("Unable to create/use directory for local data: " + downloadPath, e);
         }
         catch (InterruptedException e) {
             // ignore it
