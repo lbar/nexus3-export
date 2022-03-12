@@ -43,8 +43,8 @@ public class Nexus3ExportApplication
 
         Properties credentials = loadCredentials();
         boolean authenticate = Boolean.parseBoolean(credentials.getProperty("authenticate", "false"));
-        String username = removeTrailingQuotes(credentials.getProperty("username", null));
-        String password = removeTrailingQuotes(credentials.getProperty("password", null));
+        String username = removeTrailingQuotes(credentials.getProperty("username", ""));
+        String password = removeTrailingQuotes(credentials.getProperty("password", ""));
         if (useThread) {
             new DownloadRepository(url, repoId, downloadPath, authenticate, username, password, threads).start();
         }
