@@ -1,2 +1,3 @@
 nexus3:
   threads: 10
+  useThread: false

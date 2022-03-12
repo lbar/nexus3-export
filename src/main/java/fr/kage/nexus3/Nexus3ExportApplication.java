@@ -20,6 +20,9 @@ public class Nexus3ExportApplication
     @Value("${nexus3.threads}")
     private int threads;
 
+    @Value("${nexus3.useThread}")
+    private boolean useThread;
+
     public static void main(String[] args)
     {
         SpringApplication.run(Nexus3ExportApplication.class, args);
@@ -40,9 +43,14 @@ public class Nexus3ExportApplication
 
         Properties credentials = loadCredentials();
         boolean authenticate = Boolean.parseBoolean(credentials.getProperty("authenticate", "false"));
-        String username = removeTrailingQuotes(credentials.getProperty("username"));
-        String password = removeTrailingQuotes(credentials.getProperty("password"));
-        new DownloadRepository(url, repoId, downloadPath, authenticate, username, password, threads).start();
+        String username = removeTrailingQuotes(credentials.getProperty("username", null));
+        String password = removeTrailingQuotes(credentials.getProperty("password", null));
+        if (useThread) {
+            new DownloadRepository(url, repoId, downloadPath, authenticate, username, password, threads).start();
+        }
+        else {
+            new DownloadRepositorySingle(url, repoId, downloadPath, authenticate, username, password);
+        }
     }
 
     private Properties loadCredentials()

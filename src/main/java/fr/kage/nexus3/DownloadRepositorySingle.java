@@ -14,6 +14,7 @@ import java.io.InputStream;
 import java.net.Authenticator;
 import java.net.PasswordAuthentication;
 import java.net.URI;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -26,11 +27,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
-public class DownloadRepository
-        implements Runnable
+public class DownloadRepositorySingle
 {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(DownloadRepository.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(DownloadRepositorySingle.class);
 
     private final String url;
     private final String repositoryId;
@@ -40,16 +40,10 @@ public class DownloadRepository
     private final String username;
     private final String password;
 
-    private final int threads;
-
     private RestTemplate restTemplate;
-    private ExecutorService executorService;
 
-    private final AtomicLong assetProcessed = new AtomicLong();
-    private final AtomicLong assetFound = new AtomicLong();
-
-    public DownloadRepository(String url, String repositoryId, String downloadPath, boolean authenticate, String username,
-            String password, int threads)
+    public DownloadRepositorySingle(String url, String repositoryId, String downloadPath, boolean authenticate, String username,
+            String password)
     {
         this.url = requireNonNull(url);
         this.repositoryId = requireNonNull(repositoryId);
@@ -57,28 +51,25 @@ public class DownloadRepository
         this.authenticate = authenticate;
         this.username = username;
         this.password = password;
-        this.threads = threads;
         if (url.startsWith("https://")) {
             SSLUtilities.trustAllHostnames();
             SSLUtilities.trustAllHttpsCertificates();
         }
+        download();
     }
 
-    public void start()
+    public void download()
     {
         try {
-			if (downloadPath == null) {
-				downloadPath = Files.createTempDirectory("nexus3");
-			}
+            if (downloadPath == null) {
+                downloadPath = Files.createTempDirectory("nexus3");
+            }
             else if (!downloadPath.toFile().exists()) {
                 Files.createDirectories(downloadPath);
             }
-			else if (!downloadPath.toFile().isDirectory() || !downloadPath.toFile().canWrite()) {
-				throw new IOException("Not a writable directory: " + downloadPath);
-			}
-
-            LOGGER.info("Starting download of Nexus 3 repository in local directory {} with {} thread(s)", downloadPath, threads);
-            executorService = Executors.newFixedThreadPool(threads);
+            else if (!downloadPath.toFile().isDirectory() || !downloadPath.toFile().canWrite()) {
+                throw new IOException("Not a writable directory: " + downloadPath);
+            }
 
             if (authenticate) {
                 LOGGER.info("Configuring authentication for Nexus 3 repository");
@@ -99,33 +90,28 @@ public class DownloadRepository
             else {
                 restTemplate = new RestTemplate();
             }
-
-            executorService.submit(this);
-            executorService.awaitTermination(30, TimeUnit.SECONDS);
-            executorService.shutdown();
+            String currenToken;
+            String continueToken = null;
+            DownloadAssetsTask downloadAssetsTask;
+            while (true) {
+                downloadAssetsTask = new DownloadAssetsTask(continueToken);
+                currenToken = continueToken;
+                continueToken = downloadAssetsTask.run();
+                if (Objects.equals(currenToken, continueToken)) {
+                    return ;
+                }
+                if (continueToken == null) {
+                    return ;
+                }
+            }
         }
         catch (IOException e) {
             LOGGER.error("Unable to create/use directory for local data: " + downloadPath, e);
         }
-        catch (InterruptedException e) {
-            // ignore it
-        }
     }
 
-    @Override
-    public void run()
-    {
-        checkState(executorService != null, "Executor not initialized");
-        executorService.submit(new DownloadAssetsTask(null));
-    }
-
-    void notifyProgress()
-    {
-        LOGGER.info("Downloaded {} assets on {} found", assetProcessed.get(), assetFound.get());
-    }
 
     private class DownloadAssetsTask
-            implements Runnable
     {
 
         private final String continuationToken;
@@ -135,16 +121,15 @@ public class DownloadRepository
             this.continuationToken = continuationToken;
         }
 
-        @Override
-        public void run()
+        public String run()
         {
             LOGGER.info("Retrieving available assets to download");
             UriComponentsBuilder getAssets = UriComponentsBuilder.fromHttpUrl(url)
                     .pathSegment("service", "rest", "v1", "assets")
                     .queryParam("repository", repositoryId);
-			if (continuationToken != null) {
-				getAssets = getAssets.queryParam("continuationToken", continuationToken);
-			}
+            if (continuationToken != null) {
+                getAssets = getAssets.queryParam("continuationToken", continuationToken);
+            }
 
             final ResponseEntity<Assets> assetsEntity;
 
@@ -154,25 +139,19 @@ public class DownloadRepository
             catch (Exception e) {
                 LOGGER.error("Error retrieving available assets to download", e);
                 LOGGER.error("Error retrieving available assets to download. Please check if you've specified the correct url and " +
-						"repositoryId in the command line and -if authentication is needed- username and password in the credentials.properties file");
-                executorService.shutdownNow();
-                return;
+                        "repositoryId in the command line and -if authentication is needed- username and password in the credentials.properties file");
+                return null;
             }
 
             final Assets assets = assetsEntity.getBody();
             assert assets != null;
-            if (assets.getContinuationToken() != null) {
-                executorService.submit(new DownloadAssetsTask(assets.getContinuationToken()));
-            }
-
-            assetFound.addAndGet(assets.getItems().size());
-//            notifyProgress();
-            assets.getItems().forEach(item -> executorService.submit(new DownloadItemTask(item)));
+            assets.getItems().forEach(item -> new DownloadItemTask(item).run());
+            LOGGER.info("Download of {} assets completed", assets.getItems().size());
+            return assets.getContinuationToken();
         }
     }
 
     private class DownloadItemTask
-            implements Runnable
     {
 
         private final Item item;
@@ -182,10 +161,9 @@ public class DownloadRepository
             this.item = item;
         }
 
-        @Override
         public void run()
         {
-            LOGGER.info("Downloading asset <{}>", item.getDownloadUrl());
+            LOGGER.debug("Downloading asset <{}>", item.getDownloadUrl());
 
             try {
                 Path assetPath = downloadPath.resolve(item.getPath());
@@ -196,15 +174,16 @@ public class DownloadRepository
                     try (InputStream assetStream = downloadUri.toURL().openStream()) {
                         Files.copy(assetStream, assetPath);
                         final HashCode hash = com.google.common.io.Files.asByteSource(assetPath.toFile()).hash(Hashing.sha1());
-						if (Objects.equals(hash.toString(), item.getChecksum().getSha1())) {
-							break;
-						}
+                        if (Objects.equals(hash.toString(), item.getChecksum().getSha1())) {
+                            break;
+                        }
                         tryCount++;
                         LOGGER.info("Download failed, retrying");
                     }
                 }
-                assetProcessed.incrementAndGet();
-                notifyProgress();
+            }
+            catch( FileAlreadyExistsException _ignore) {
+                LOGGER.info("Asset <{}> already exists, skipping", item.getPath());
             }
             catch (IOException e) {
                 LOGGER.error("Failed to download asset <" + item.getDownloadUrl() + ">", e);
