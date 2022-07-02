@@ -14,12 +14,13 @@ import java.io.InputStream;
 import java.net.Authenticator;
 import java.net.PasswordAuthentication;
 import java.net.URI;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Objects;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -43,7 +44,7 @@ public class DownloadRepository
     private final int threads;
 
     private RestTemplate restTemplate;
-    private ExecutorService executorService;
+    private ThreadPoolExecutor executorService = null;
 
     private final AtomicLong assetProcessed = new AtomicLong();
     private final AtomicLong assetFound = new AtomicLong();
@@ -68,7 +69,7 @@ public class DownloadRepository
     {
         try {
 			if (downloadPath == null) {
-				downloadPath = Files.createTempDirectory("nexus3");
+				downloadPath = Files.createTempDirectory(repositoryId);
 			}
             else if (!downloadPath.toFile().exists()) {
                 Files.createDirectories(downloadPath);
@@ -76,9 +77,8 @@ public class DownloadRepository
 			else if (!downloadPath.toFile().isDirectory() || !downloadPath.toFile().canWrite()) {
 				throw new IOException("Not a writable directory: " + downloadPath);
 			}
-
             LOGGER.info("Starting download of Nexus 3 repository in local directory {} with {} thread(s)", downloadPath, threads);
-            executorService = Executors.newFixedThreadPool(threads);
+            executorService = (ThreadPoolExecutor) Executors.newFixedThreadPool(threads);
 
             if (authenticate) {
                 LOGGER.info("Configuring authentication for Nexus 3 repository");
@@ -99,7 +99,6 @@ public class DownloadRepository
             else {
                 restTemplate = new RestTemplate();
             }
-
             executorService.submit(this);
             executorService.awaitTermination(30, TimeUnit.SECONDS);
             executorService.shutdown();
@@ -108,7 +107,7 @@ public class DownloadRepository
             LOGGER.error("Unable to create/use directory for local data: " + downloadPath, e);
         }
         catch (InterruptedException e) {
-            // ignore it
+            LOGGER.error("running time error ", e);
         }
     }
 
@@ -161,8 +160,9 @@ public class DownloadRepository
 
             final Assets assets = assetsEntity.getBody();
             assert assets != null;
-            if (assets.getContinuationToken() != null) {
-                executorService.submit(new DownloadAssetsTask(assets.getContinuationToken()));
+            String token = assets.getContinuationToken();
+            if (token != null) {
+                executorService.submit(new DownloadAssetsTask(token));
             }
 
             assetFound.addAndGet(assets.getItems().size());
@@ -186,9 +186,8 @@ public class DownloadRepository
         public void run()
         {
             LOGGER.info("Downloading asset <{}>", item.getDownloadUrl());
-
+            Path assetPath = downloadPath.resolve(item.getPath());
             try {
-                Path assetPath = downloadPath.resolve(item.getPath());
                 Files.createDirectories(assetPath.getParent());
                 final URI downloadUri = URI.create(item.getDownloadUrl());
                 int tryCount = 1;
@@ -203,6 +202,11 @@ public class DownloadRepository
                         LOGGER.info("Download failed, retrying");
                     }
                 }
+                assetProcessed.incrementAndGet();
+                notifyProgress();
+            }
+            catch (FileAlreadyExistsException e) {
+                LOGGER.warn("file {} has exists ,skip it", assetPath);
                 assetProcessed.incrementAndGet();
                 notifyProgress();
             }

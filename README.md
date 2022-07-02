@@ -9,8 +9,8 @@ The purpose of this tool is to export a repository from Sonatype Nexus 3. Since 
 Program takes 2 required commandline arguments plus 1 optional command line argument:
 * URL of the Nexus repository
 * Id of the repository in Nexus (e.g. _releases_)
-* (Optional) The local directory for repository to export. If no one is provided, a directory is created in the user temp directory. if 
-  the directory does not exist, it will be created.
+* (Optional) The local directory for repository to export. If no one is provided, It takes the repository id as folder named  is
+  created in the user temp directory. if the directory does not exist, it will be created.
 
 Program invoke 10 threads to download assets. you can pass `--nexus3.threads=<num>` to change the number of threads.
 
