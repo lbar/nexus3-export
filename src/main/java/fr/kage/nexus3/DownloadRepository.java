@@ -1,7 +1,6 @@
 package fr.kage.nexus3;
 
-import com.google.common.hash.HashCode;
-import com.google.common.hash.Hashing;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -68,15 +67,15 @@ public class DownloadRepository
     public void start()
     {
         try {
-			if (downloadPath == null) {
-				downloadPath = Files.createTempDirectory(repositoryId);
-			}
+            if (downloadPath == null) {
+                downloadPath = Files.createDirectory(Paths.get(repositoryId));
+            }
             else if (!downloadPath.toFile().exists()) {
                 Files.createDirectories(downloadPath);
             }
-			else if (!downloadPath.toFile().isDirectory() || !downloadPath.toFile().canWrite()) {
-				throw new IOException("Not a writable directory: " + downloadPath);
-			}
+            else if (!downloadPath.toFile().isDirectory() || !downloadPath.toFile().canWrite()) {
+                throw new IOException("Not a writable directory: " + downloadPath);
+            }
             LOGGER.info("Starting download of Nexus 3 repository in local directory {} with {} thread(s)", downloadPath, threads);
             executorService = (ThreadPoolExecutor) Executors.newFixedThreadPool(threads);
 
@@ -141,9 +140,9 @@ public class DownloadRepository
             UriComponentsBuilder getAssets = UriComponentsBuilder.fromHttpUrl(url)
                     .pathSegment("service", "rest", "v1", "assets")
                     .queryParam("repository", repositoryId);
-			if (continuationToken != null) {
-				getAssets = getAssets.queryParam("continuationToken", continuationToken);
-			}
+            if (continuationToken != null) {
+                getAssets = getAssets.queryParam("continuationToken", continuationToken);
+            }
 
             final ResponseEntity<Assets> assetsEntity;
 
@@ -153,7 +152,7 @@ public class DownloadRepository
             catch (Exception e) {
                 LOGGER.error("Error retrieving available assets to download", e);
                 LOGGER.error("Error retrieving available assets to download. Please check if you've specified the correct url and " +
-						"repositoryId in the command line and -if authentication is needed- username and password in the credentials.properties file");
+                        "repositoryId in the command line and -if authentication is needed- username and password in the credentials.properties file");
                 executorService.shutdownNow();
                 return;
             }
@@ -194,10 +193,11 @@ public class DownloadRepository
                 while (tryCount <= 3) {
                     try (InputStream assetStream = downloadUri.toURL().openStream()) {
                         Files.copy(assetStream, assetPath);
-                        final HashCode hash = com.google.common.io.Files.asByteSource(assetPath.toFile()).hash(Hashing.sha1());
-						if (Objects.equals(hash.toString(), item.getChecksum().getSha1())) {
-							break;
-						}
+//                        final HashCode hash = com.google.common.io.Files.asByteSource(assetPath.toFile()).hash(Hashing.sha1());
+                        final String hash = DigestUtils.sha1Hex(Files.readAllBytes(assetPath));
+                        if (Objects.equals(hash, item.getChecksum().getSha1())) {
+                            break;
+                        }
                         tryCount++;
                         LOGGER.info("Download failed, retrying");
                     }

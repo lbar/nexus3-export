@@ -49,7 +49,7 @@ public class Nexus3ExportApplication
             new DownloadRepository(url, repoId, downloadPath, authenticate, username, password, threads).start();
         }
         else {
-            new DownloadRepositorySingle(url, repoId, downloadPath, authenticate, username, password);
+            new DownloadRepository(url, repoId, downloadPath, authenticate, username, password, 1).start();
         }
     }
 
