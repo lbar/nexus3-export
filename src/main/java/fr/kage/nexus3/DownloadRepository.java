@@ -161,10 +161,10 @@ public class DownloadRepository implements Runnable {
 
 		@Override
 		public void run() {
-			LOGGER.info("Downloading asset <{}>", item.getDownloadUrl());
 
 			try {
 				Path assetPath = downloadPath.resolve(item.getPath());
+			    LOGGER.info("Downloading asset <{}> at {}", item.getDownloadUrl(), assetPath.toAbsolutePath());
 				Files.createDirectories(assetPath.getParent());
 				final URI downloadUri = URI.create(item.getDownloadUrl());
 				int tryCount = 1;
